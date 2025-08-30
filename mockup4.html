@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UAV–AI Ward Dashboard (Mock • Multi-Area, Left Controls)</title>
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Turf.js for geospatial calculations -->
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+  <!-- Chart.js for quick charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a; /* slate-900 */
+      --panel: #111827; /* gray-900 */
+      --muted: #1f2937; /* gray-800 */
+      --text: #e5e7eb; /* gray-200 */
+      --accent: #22d3ee; /* cyan-400 */
+      --accent-2: #60a5fa; /* blue-400 */
+      --good: #22c55e;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+      --water: #38bdf8;
+    }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+    .app { display: grid; grid-template-rows: auto 1fr auto; height: 100vh; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: linear-gradient(90deg, #0b1220, #0f172a 40%, #0b1220); border-bottom: 1px solid #1f2937; }
+    header .title { display: flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: .3px; }
+    header .badge { padding: 2px 8px; border-radius: 999px; background: #0ea5e9; color: white; font-size: 12px; }
+    header .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    select, button, input[type="range"], input[type="text"] { background: var(--muted); color: var(--text); border: 1px solid #334155; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+    button { cursor: pointer; transition: .2s ease; }
+    button.primary { background: linear-gradient(180deg, var(--accent), var(--accent-2)); color: #001018; border: none; font-weight: 700; }
+    button:hover { filter: brightness(1.08); }
+    .btn-sm { padding: 6px 10px; font-size: 12px; }
+    .main { display: grid; grid-template-columns: 360px 1fr; gap: 0; height: 100%; min-height: 0; }
+    #map { width: 100%; height: 100%; min-height: 100%; }
+    aside { background: var(--panel); border-right: 1px solid #1f2937; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+    .card { background: #0b1220; border: 1px solid #1f2937; border-radius: 12px; padding: 12px; }
+    .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .kpi { background: #0c1222; border: 1px solid #1f2937; border-radius: 10px; padding: 10px; }
+    .kpi h4 { margin: 0; font-size: 12px; color: #94a3b8; font-weight: 600; }
+    .kpi p { margin: 6px 0 0; font-size: 18px; font-weight: 800; }
+    .toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .toggle { display: flex; align-items: center; gap: 8px; font-size: 12px; background: #0c1222; border: 1px solid #1f2937; padding: 8px; border-radius: 8px; }
+    .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { width: 12px; height: 12px; display: inline-block; border-radius: 3px; border: 1px solid #0006; }
+    footer { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: #0b1220; border-top: 1px solid #1f2937; }
+    .toolbar { display: flex; gap: 8px; align-items: center; }
+    .pill { padding: 6px 10px; background: #0c1222; border: 1px solid #1f2937; border-radius: 999px; font-size: 12px; }
+    .toast { position: fixed; right: 16px; bottom: 16px; background: #0ea5e9; color: #05202a; padding: 10px 14px; border-radius: 10px; box-shadow: 0 10px 30px #0008; font-weight: 700; opacity: 0; transform: translateY(10px); transition: .3s ease; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .filters { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+    .popup-table { width: 260px; font-size: 12px; border-collapse: collapse; }
+    .popup-table td { padding: 2px 0; border-bottom: 1px dashed #1f2937; }
+    .conf-bar { height: 8px; border-radius: 999px; background: linear-gradient(90deg, #ef4444, #f59e0b, #22c55e); position: relative; }
+    .conf-dot { position: absolute; top: -3px; width: 14px; height: 14px; border-radius: 999px; border: 2px solid #0b1220; background: #fff; box-shadow: 0 2px 6px #0008; }
+    /* Output items */
+    .outputs-list { display: grid; gap: 10px; }
+    .output-item { background:#0c1222; border:1px solid #1f2937; border-radius:10px; padding:10px; }
+    .output-item .title { font-weight:800; font-size:13px; margin-bottom:4px; }
+    .output-item .desc { font-size:12px; color:#9ca3af; margin-bottom:8px; }
+    .output-item .actions { display:flex; gap:6px; flex-wrap:wrap; }
+    .btn-ghost { background:#0c1222; border:1px solid #334155; }
+    @media (max-width: 1100px) { .main { grid-template-columns: 1fr; } #map { height: 50vh; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="title">
+        <div style="width:10px;height:10px;border-radius:999px;background:var(--accent);"></div>
+        <div>UAV–AI Ward Dashboard <span class="badge">Mock</span></div>
+      </div>
+      <div class="controls">
+        <div id="locBreadcrumb" class="pill">Koshi ▸ Saptari ▸ Hanumannagar ▸ Ward 3</div>
+        <div class="pill" id="droneSize">Drone Area: 5 km²</div>
+      </div>
+    </header>
+
+    <div class="main">
+      <!-- LEFT SIDEBAR -->
+      <aside>
+        <div class="card">
+          <div style="font-weight:800; margin-bottom:8px;">Selections</div>
+          <div class="filters">
+            <label style="font-size:12px;opacity:.9;">Analysis Area</label>
+            <select id="areaSelect">
+              <option value="hanumannagar" selected>Hanumannagar Kankalini (Saptari) · Ward 3</option>
+              <option value="harinagar">Harinagar (Sunsari) · Ward 5</option>
+            </select>
+            <div class="row">
+              <label for="time" style="font-size:12px;opacity:.9;">Date</label>
+              <div id="timeLabel" class="pill">Aug 16</div>
+            </div>
+            <input id="time" type="range" min="0" max="2" value="1" step="1" />
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <div>
+              <div style="font-weight:800;">Ward Overview</div>
+              <div id="wardLabel" style="font-size:12px;color:#9ca3af">Saptari ▸ Hanumannagar ▸ Ward 3</div>
+            </div>
+          </div>
+          <div class="kpis" style="margin-top:10px;">
+            <div class="kpi"><h4>Hectares surveyed</h4><p id="kpiHa">—</p></div>
+            <div class="kpi"><h4>Hectares flooded</h4><p id="kpiFlood">—</p></div>
+            <div class="kpi"><h4>Avg NDVI</h4><p id="kpiNDVI">—</p></div>
+            <div class="kpi"><h4>Est. yield loss</h4><p id="kpiYield">—</p></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="font-weight:800; margin-bottom:8px;">Layers</div>
+          <div class="toggles">
+            <label class="toggle"><input type="checkbox" id="layerFlood" checked /> SAR Flood</label>
+            <label class="toggle"><input type="checkbox" id="layerDrone" checked /> Drone Orthomosaic (footprint)</label>
+            <label class="toggle"><input type="checkbox" id="layerAI" checked /> AI Damage</label>
+            <label class="toggle"><input type="checkbox" id="layerNDVI" /> NDVI</label>
+            <label class="toggle"><input type="checkbox" id="layerDSM" /> DSM</label>
+            <label class="toggle"><input type="checkbox" id="layerWard" checked /> Ward Boundary</label>
+          </div>
+          <div class="legend" style="margin-top:8px;">
+            <span><i class="swatch" style="background:var(--water);"></i> Flood</span>
+            <span><i class="swatch" style="background:var(--good);"></i> Healthy</span>
+            <span><i class="swatch" style="background:var(--warn);"></i> Stressed</span>
+            <span><i class="swatch" style="background:var(--bad);"></i> Damaged</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="font-weight:800; margin-bottom:8px;">Filters</div>
+          <div class="filters">
+            <select id="cropFilter">
+              <option value="all" selected>All Crops</option>
+              <option value="Rice">Rice</option>
+              <option value="Maize">Maize</option>
+            </select>
+            <div class="row">
+              <input id="searchId" type="text" placeholder="Search Farmer ID (e.g., F-1042)" />
+              <button id="btnSearch">Go</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="font-weight:800; margin-bottom:8px;">Damage Mix</div>
+          <canvas id="mixChart" height="180"></canvas>
+        </div>
+
+        <!-- Expected Outputs as interactive items -->
+        <div class="card">
+          <div style="font-weight:800; margin-bottom:8px;">Expected Outputs</div>
+          <div class="outputs-list">
+            <div class="output-item">
+              <div class="title">Geo-referenced orthophotos & Digital Surface Models (DSMs)</div>
+              <div class="desc">High-resolution orthophoto footprint and elevation markers from UAV/satellite sources.</div>
+              <div class="actions">
+                <button id="opOrthView" class="btn-sm">Show on Map</button>
+                <button id="opOrthDL" class="btn-sm btn-ghost">Download (GeoJSON)</button>
+              </div>
+            </div>
+            <div class="output-item">
+              <div class="title">Delineated flood extent layers</div>
+              <div class="desc">Validated flood boundary for the selected date.</div>
+              <div class="actions">
+                <button id="opFloodView" class="btn-sm">Show on Map</button>
+                <button id="opFloodDL" class="btn-sm btn-ghost">Download (GeoJSON)</button>
+              </div>
+            </div>
+            <div class="output-item">
+              <div class="title">Damage classification maps</div>
+              <div class="desc">Per-parcel damage categories for crops, infrastructure, and settlements.</div>
+              <div class="actions">
+                <button id="opDamageView" class="btn-sm">Show on Map</button>
+                <button id="opDamageDL" class="btn-sm btn-ghost">Download (GeoJSON)</button>
+              </div>
+            </div>
+            <div class="output-item">
+              <div class="title">Integrated AI-powered platform (Prototype)</div>
+              <div class="desc">Interactive prototype combining drone, satellite, GIS, and field data for reports.</div>
+              <div class="actions">
+                <button id="opPrototype" class="btn-sm primary">Open Prototype</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <button id="btnCSV">Export CSV</button>
+            <button id="btnReport">Print Report</button>
+            <button id="btnPush" class="primary">Push to BIPAD</button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- MAP ON THE RIGHT -->
+      <div id="map"></div>
+    </div>
+
+    <footer>
+      <div class="pill">AI Confidence shown per parcel • Demo data only</div>
+    </footer>
+  </div>
+
+  <div id="toast" class="toast">Synced to BIPAD ✓</div>
+
+  <script>
+    // --- MULTI-AREA MOCK DATA ---------------------------------------------
+    const areas = {
+      hanumannagar: {
+        labelBreadcrumb: 'Koshi ▸ Saptari ▸ Hanumannagar ▸ Ward 3',
+        wardLabel: 'Saptari ▸ Hanumannagar ▸ Ward 3',
+        center: [26.520, 86.950],
+        wardPoly: [ [26.530,86.938],[26.530,86.962],[26.510,86.962],[26.510,86.938] ],
+        dronePoly: [ [26.526,86.944],[26.526,86.956],[26.516,86.956],[26.516,86.944] ],
+        parcels: [
+          { id:'F-1042', crop:'Rice',  coords:[[26.524,86.946],[26.524,86.949],[26.521,86.949],[26.521,86.946]], ndvi:0.62, damage:0.68, yieldLossTons:1.2, areaHa:7.5, aiConf:0.82 },
+          { id:'F-1043', crop:'Rice',  coords:[[26.524,86.949],[26.524,86.952],[26.521,86.952],[26.521,86.949]], ndvi:0.55, damage:0.35, yieldLossTons:0.6, areaHa:5.2, aiConf:0.74 },
+          { id:'F-1044', crop:'Maize', coords:[[26.524,86.952],[26.524,86.955],[26.521,86.955],[26.521,86.952]], ndvi:0.71, damage:0.10, yieldLossTons:0.1, areaHa:4.3, aiConf:0.88 },
+          { id:'F-1045', crop:'Rice',  coords:[[26.521,86.946],[26.521,86.949],[26.518,86.949],[26.518,86.946]], ndvi:0.44, damage:0.52, yieldLossTons:0.8, areaHa:6.1, aiConf:0.69 },
+          { id:'F-1046', crop:'Rice',  coords:[[26.521,86.949],[26.521,86.952],[26.518,86.952],[26.518,86.949]], ndvi:0.36, damage:0.80, yieldLossTons:1.4, areaHa:6.8, aiConf:0.77 },
+          { id:'F-1047', crop:'Maize', coords:[[26.521,86.952],[26.521,86.955],[26.518,86.955],[26.518,86.952]], ndvi:0.66, damage:0.05, yieldLossTons:0.0, areaHa:4.8, aiConf:0.91 },
+          { id:'F-1048', crop:'Rice',  coords:[[26.518,86.946],[26.518,86.949],[26.515,86.949],[26.515,86.946]], ndvi:0.29, damage:0.86, yieldLossTons:1.7, areaHa:7.1, aiConf:0.73 },
+          { id:'F-1049', crop:'Rice',  coords:[[26.518,86.949],[26.518,86.952],[26.515,86.952],[26.515,86.949]], ndvi:0.58, damage:0.22, yieldLossTons:0.3, areaHa:4.9, aiConf:0.84 }
+        ],
+        floodByDay: [
+          [ [26.525,86.945],[26.525,86.951],[26.520,86.951],[26.520,86.945] ],
+          [ [26.526,86.945],[26.526,86.955],[26.519,86.955],[26.519,86.945] ],
+          [ [26.525,86.946],[26.525,86.953],[26.520,86.953],[26.520,86.946] ]
+        ],
+        dsmMarkers: [ { lat:26.522, lng:86.950, label:'Sediment +10cm' }, { lat:26.5235, lng:86.9475, label:'Lodging zone' } ]
+      },
+      harinagar: {
+        labelBreadcrumb: 'Koshi ▸ Sunsari ▸ Harinagar ▸ Ward 5',
+        wardLabel: 'Sunsari ▸ Harinagar ▸ Ward 5',
+        center: [26.600, 87.160],
+        wardPoly: [ [26.610,87.148],[26.610,87.172],[26.590,87.172],[26.590,87.148] ],
+        dronePoly: [ [26.606,87.154],[26.606,87.166],[26.596,87.166],[26.596,87.154] ],
+        parcels: [
+          { id:'F-2101', crop:'Rice',  coords:[[26.604,87.156],[26.604,87.159],[26.601,87.159],[26.601,87.156]], ndvi:0.68, damage:0.18, yieldLossTons:0.3, areaHa:5.7, aiConf:0.86 },
+          { id:'F-2102', crop:'Rice',  coords:[[26.604,87.159],[26.604,87.162],[26.601,87.162],[26.601,87.159]], ndvi:0.52, damage:0.42, yieldLossTons:0.7, areaHa:6.2, aiConf:0.79 },
+          { id:'F-2103', crop:'Maize', coords:[[26.604,87.162],[26.604,87.165],[26.601,87.165],[26.601,87.162]], ndvi:0.60, damage:0.08, yieldLossTons:0.1, areaHa:4.1, aiConf:0.92 },
+          { id:'F-2104', crop:'Rice',  coords:[[26.601,87.156],[26.601,87.159],[26.598,87.159],[26.598,87.156]], ndvi:0.40, damage:0.72, yieldLossTons:1.5, areaHa:7.3, aiConf:0.71 },
+          { id:'F-2105', crop:'Rice',  coords:[[26.601,87.159],[26.601,87.162],[26.598,87.162],[26.598,87.159]], ndvi:0.34, damage:0.82, yieldLossTons:1.9, areaHa:7.0, aiConf:0.76 },
+          { id:'F-2106', crop:'Maize', coords:[[26.601,87.162],[26.601,87.165],[26.598,87.165],[26.598,87.162]], ndvi:0.69, damage:0.06, yieldLossTons:0.0, areaHa:4.4, aiConf:0.90 },
+          { id:'F-2107', crop:'Rice',  coords:[[26.598,87.156],[26.598,87.159],[26.595,87.159],[26.595,87.156]], ndvi:0.27, damage:0.88, yieldLossTons:2.1, areaHa:7.6, aiConf:0.72 },
+          { id:'F-2108', crop:'Rice',  coords:[[26.598,87.159],[26.598,87.162],[26.595,87.162],[26.595,87.159]], ndvi:0.56, damage:0.25, yieldLossTons:0.4, areaHa:5.0, aiConf:0.83 }
+        ],
+        floodByDay: [
+          [ [26.605,87.155],[26.605,87.161],[26.600,87.161],[26.600,87.155] ],
+          [ [26.606,87.155],[26.606,87.165],[26.599,87.165],[26.599,87.155] ],
+          [ [26.605,87.156],[26.605,87.163],[26.600,87.163],[26.600,87.156] ]
+        ],
+        dsmMarkers: [ { lat:26.602, lng:87.160, label:'Sediment +14cm' }, { lat:26.6035, lng:87.1575, label:'Rill erosion' } ]
+      }
+    };
+
+    // --- MAP & STATE -------------------------------------------------------
+    let currentKey = 'hanumannagar';
+    const map = L.map('map', { zoomControl: true }).setView(areas[currentKey].center, 15);
+    window.addEventListener('load', () => setTimeout(()=> map.invalidateSize(), 50));
+    window.addEventListener('resize', () => map.invalidateSize());
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+
+    // Layer containers
+    let wardGroup = L.layerGroup();
+    let droneGroup = L.layerGroup();
+    let floodLayers = [];
+    let currentFloodLayer = null;
+    let dsmGroup = L.layerGroup();
+    let parcelLayerGroup = L.layerGroup();
+
+    // UI refs
+    const elArea = document.getElementById('areaSelect');
+    const elBreadcrumb = document.getElementById('locBreadcrumb');
+    const elWardLabel = document.getElementById('wardLabel');
+    const elTime = document.getElementById('time');
+    const elTimeLabel = document.getElementById('timeLabel');
+    const elFlood = document.getElementById('layerFlood');
+    const elDrone = document.getElementById('layerDrone');
+    const elAI = document.getElementById('layerAI');
+    const elNDVI = document.getElementById('layerNDVI');
+    const elDSM = document.getElementById('layerDSM');
+    const elWard = document.getElementById('layerWard');
+    const elCrop = document.getElementById('cropFilter');
+    const elSearch = document.getElementById('searchId');
+
+    const kpiHa = document.getElementById('kpiHa');
+    const kpiFlood = document.getElementById('kpiFlood');
+    const kpiNDVI = document.getElementById('kpiNDVI');
+    const kpiYield = document.getElementById('kpiYield');
+
+    // Chart init
+    const chartCtx = document.getElementById('mixChart');
+    let mixChart = new Chart(chartCtx, { type: 'doughnut', data: { labels: ['Healthy','Stressed','Damaged'], datasets: [{ data: [0,0,0] }] }, options: { plugins: { legend: { labels: { color:'#cbd5e1' } } } } });
+
+    // --- HELPERS -----------------------------------------------------------
+    function polygonFromLatLng(coords) { return turf.polygon([[...coords, coords[0]].map(([lat,lng]) => [lng,lat])]); }
+    function haToStr(ha) { return ha.toFixed(1) + ' ha'; }
+    function tonsStr(t) { return t.toFixed(1) + ' t'; }
+    function damageColor(p){ if (p.damage>=0.66) return '#ef4444'; if (p.damage>=0.33) return '#f59e0b'; return '#22c55e'; }
+    function ndviColor(val){ const g=Math.round(80+val*150); return `rgb(40, ${g}, 60)`; }
+
+    function parcelPopup(p){
+      const confPct = Math.round(p.aiConf*100);
+      return `
+        <div style="font-weight:800;margin-bottom:6px;">${p.id} · ${p.crop}</div>
+        <table class="popup-table">
+          <tr><td>Area</td><td style="text-align:right;">${haToStr(p.areaHa)}</td></tr>
+          <tr><td>NDVI (pre)</td><td style="text-align:right;">${p.ndvi.toFixed(2)}</td></tr>
+          <tr><td>Damage</td><td style="text-align:right;">${Math.round(p.damage*100)}%</td></tr>
+          <tr><td>Yield loss</td><td style="text-align:right;">${tonsStr(p.yieldLossTons)}</td></tr>
+        </table>
+        <div style="margin-top:8px;font-size:12px;color:#9ca3af;">AI Confidence</div>
+        <div class="conf-bar"><div class="conf-dot" style="left:${confPct}%"></div></div>`;
+    }
+
+    function buildAreaLayers(key){
+      // Clear old
+      wardGroup.clearLayers(); droneGroup.clearLayers(); dsmGroup.clearLayers(); parcelLayerGroup.clearLayers();
+      if (currentFloodLayer) map.removeLayer(currentFloodLayer);
+      floodLayers = [];
+
+      const A = areas[key];
+      // Ward
+      const ward = L.polygon(A.wardPoly, { color: '#60a5fa', weight: 1.5, fillOpacity: 0, dashArray: '6 6' });
+      wardGroup.addLayer(ward);
+
+      // Drone footprint + visual grid
+      const dpoly = L.polygon(A.dronePoly, { color: '#22d3ee', weight: 2, fillOpacity: 0.05, fillColor: '#22d3ee', dashArray: '4 6' });
+      droneGroup.addLayer(dpoly);
+      // mosaic grid within drone bounds
+      const b = dpoly.getBounds();
+      const rows=6, cols=8;
+      const latStep=(b.getNorth()-b.getSouth())/rows;
+      const lngStep=(b.getEast()-b.getWest())/cols;
+      for(let i=0;i<rows;i++){
+        for(let j=0;j<cols;j++){
+          const r = L.rectangle([[b.getSouth()+i*latStep,b.getWest()+j*lngStep],[b.getSouth()+(i+1)*latStep,b.getWest()+(j+1)*lngStep]], {color:'#0ea5e9', weight:.5, fillOpacity:.03});
+          droneGroup.addLayer(r);
+        }
+      }
+
+      // Flood layers
+      A.floodByDay.forEach(coords=> floodLayers.push(L.polygon(coords, { color:'#38bdf8', weight:0, fillColor:'#38bdf8', fillOpacity:.35 })));
+      currentFloodLayer = floodLayers[Number(elTime.value)];
+
+      // DSM markers
+      A.dsmMarkers.forEach(m => dsmGroup.addLayer(L.circleMarker([m.lat,m.lng], { radius:6, color:'#eab308', fillColor:'#eab308', fillOpacity:.7 }).bindTooltip(m.label)));
+
+      // Parcels
+      rebuildParcels();
+
+      // Visibility
+      updateLayerVisibility();
+      // Fit map
+      map.setView(A.center, 15);
+      map.fitBounds(L.polygon(A.dronePoly).getBounds(), { padding:[20,20] });
+      setTimeout(()=> map.invalidateSize(), 50);
+
+      // Labels
+      elBreadcrumb.textContent = A.labelBreadcrumb;
+      elWardLabel.textContent = A.wardLabel;
+    }
+
+    function rebuildParcels(){
+      const A = areas[currentKey];
+      parcelLayerGroup.clearLayers();
+      const cropSel = elCrop.value;
+      let healthy=0, stressed=0, damaged=0;
+      A.parcels.forEach(p => {
+        if (cropSel !== 'all' && p.crop !== cropSel) return;
+        const color = elNDVI.checked ? ndviColor(p.ndvi) : (elAI.checked ? damageColor(p) : '#94a3b8');
+        const poly = L.polygon(p.coords, { color: '#334155', weight: 1, fillColor: color, fillOpacity: 0.45 }).bindPopup(parcelPopup(p));
+        parcelLayerGroup.addLayer(poly);
+        if (p.damage >= 0.66) damaged++; else if (p.damage >= 0.33) stressed++; else healthy++;
+      });
+      parcelLayerGroup.addTo(map);
+      mixChart.data.datasets[0].data = [healthy, stressed, damaged];
+      mixChart.update();
+      updateKPIs();
+    }
+
+    function updateFloodLayer(){
+      const idx = Number(elTime.value);
+      if (currentFloodLayer) map.removeLayer(currentFloodLayer);
+      currentFloodLayer = floodLayers[idx];
+      if (document.getElementById('layerFlood').checked && currentFloodLayer) currentFloodLayer.addTo(map);
+      const dates = ['Aug 15','Aug 16','Aug 17'];
+      elTimeLabel.textContent = dates[idx];
+      updateKPIs();
+    }
+
+    function updateLayerVisibility(){
+      if (document.getElementById('layerWard').checked) wardGroup.addTo(map); else map.removeLayer(wardGroup);
+      if (document.getElementById('layerDrone').checked) droneGroup.addTo(map); else map.removeLayer(droneGroup);
+      if (document.getElementById('layerFlood').checked && currentFloodLayer) currentFloodLayer.addTo(map); else if (currentFloodLayer) map.removeLayer(currentFloodLayer);
+      if (document.getElementById('layerDSM').checked) dsmGroup.addTo(map); else map.removeLayer(dsmGroup);
+      rebuildParcels();
+    }
+
+    function updateKPIs(){
+      const A = areas[currentKey];
+      const cropSel = elCrop.value;
+      const selParcels = A.parcels.filter(p => cropSel==='all' || p.crop===cropSel);
+      const totalHa = selParcels.reduce((s,p)=> s + p.areaHa, 0);
+      const floodCoords = A.floodByDay[Number(elTime.value)];
+      const floodPoly = polygonFromLatLng(floodCoords);
+      let floodedHa = 0;
+      selParcels.forEach(p => { const inter = turf.intersect(polygonFromLatLng(p.coords), floodPoly); if (inter) floodedHa += turf.area(inter)/10000.0; });
+      const avgNdvi = selParcels.length ? (selParcels.reduce((s,p)=>s+p.ndvi,0)/selParcels.length) : 0;
+      const yieldLoss = selParcels.reduce((s,p)=> s + p.yieldLossTons, 0);
+      kpiHa.textContent = haToStr(totalHa);
+      kpiFlood.textContent = haToStr(floodedHa);
+      kpiNDVI.textContent = avgNdvi.toFixed(2);
+      kpiYield.textContent = tonsStr(yieldLoss);
+    }
+
+    // --- EXPORT HELPERS ----------------------------------------------------
+    function downloadJSON(filename, obj){
+      const blob = new Blob([JSON.stringify(obj, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+    }
+
+    function exportOrthophotoDSM(){
+      const A = areas[currentKey];
+      const features = [];
+      features.push({ type:'Feature', properties:{ kind:'drone_footprint', area_km2:5 }, geometry: polygonFromLatLng(A.dronePoly).geometry });
+      A.dsmMarkers.forEach(m=>{
+        features.push({ type:'Feature', properties:{ kind:'dsm_marker', label:m.label }, geometry:{ type:'Point', coordinates:[m.lng, m.lat] }});
+      });
+      downloadJSON(`${currentKey}_orthophoto_dsm.geojson`, { type:'FeatureCollection', features });
+      toast('Orthophoto & DSM exported');
+    }
+
+    function exportFloodExtent(){
+      const A = areas[currentKey];
+      const idx = Number(elTime.value);
+      const dates = ['2025-08-15','2025-08-16','2025-08-17'];
+      const feature = { type:'Feature', properties:{ kind:'flood_extent', date:dates[idx] }, geometry: polygonFromLatLng(A.floodByDay[idx]).geometry };
+      downloadJSON(`${currentKey}_flood_extent_${dates[idx]}.geojson`, { type:'FeatureCollection', features:[feature] });
+      toast('Flood extent exported');
+    }
+
+    function exportDamageMap(){
+      const A = areas[currentKey];
+      const cropSel = elCrop.value;
+      const feats = A.parcels.filter(p => cropSel==='all' || p.crop===cropSel).map(p => ({
+        type:'Feature',
+        properties:{ id:p.id, crop:p.crop, ndvi:p.ndvi, damage:p.damage, yieldLossTons:p.yieldLossTons, areaHa:p.areaHa, aiConf:p.aiConf },
+        geometry: polygonFromLatLng(p.coords).geometry
+      }));
+      downloadJSON(`${currentKey}_damage_map.geojson`, { type:'FeatureCollection', features:feats });
+      toast('Damage map exported');
+    }
+
+    function openPrototype(){
+      const w = window.open('', 'platform_prototype');
+      w.document.write(`<!doctype html><html><head><title>AI Platform Prototype</title>
+        <style>body{font-family:system-ui,Arial;margin:0;background:#0f172a;color:#e5e7eb}
+        .wrap{max-width:900px;margin:0 auto;padding:24px}
+        .badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#22d3ee;color:#05202a;font-weight:800;margin-bottom:10px}
+        .card{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:16px;margin:12px 0}
+        button{background:#111827;border:1px solid #334155;border-radius:8px;color:#e5e7eb;padding:8px 10px;cursor:pointer}
+        </style></head><body>
+        <div class="wrap">
+          <div class="badge">Prototype</div>
+          <h1>Integrated AI-powered Platform</h1>
+          <p>This mock window represents the integrated platform that combines drone, satellite, GIS, and field data for rapid post-disaster reporting.</p>
+          <div class="card"><h3>Quick Actions</h3>
+            <p>• Generate PDF report (uses current dashboard filters)<br/>• Export GeoPackages (flood, parcels, DSM)</p>
+            <button onclick="window.print()">Print This Prototype</button>
+          </div>
+          <div class="card"><h3>What would be included?</h3>
+            <ul>
+              <li>Orthophoto/DSM mosaic layers</li>
+              <li>Validated flood extent</li>
+              <li>Damage classification per parcel</li>
+              <li>Summary tables, KPIs, and metadata</li>
+            </ul>
+          </div>
+        </div></body></html>`);
+      w.document.close();
+      toast('Prototype opened');
+    }
+
+    // --- EXISTING EXPORTS --------------------------------------------------
+    function exportCSV(){
+      const A = areas[currentKey];
+      const cropSel = elCrop.value;
+      const selParcels = A.parcels.filter(p => cropSel==='all' || p.crop===cropSel);
+      let csv = 'FarmerID,Crop,Area_ha,NDVI_pre,Damage_pct,YieldLoss_tons,AI_Confidence\n';
+      selParcels.forEach(p => { csv += `${p.id},${p.crop},${p.areaHa.toFixed(2)},${p.ndvi.toFixed(2)},${Math.round(p.damage*100)},${p.yieldLossTons.toFixed(2)},${Math.round(p.aiConf*100)}\n`; });
+      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href=url; a.download=`${currentKey}_ward_damage_summary.csv`; a.click(); URL.revokeObjectURL(url);
+    }
+
+    function printReport(){
+      const A = areas[currentKey];
+      const w = window.open('', 'report');
+      w.document.write(`<!doctype html><html><head><title>Ward Report</title>
+        <style>body{font-family:Arial;padding:20px;} h1{font-size:18px} table{border-collapse:collapse;width:100%} td,th{border:1px solid #ddd;padding:6px;font-size:12px}</style>
+      </head><body>`);
+      w.document.write(`<h1>${A.wardLabel} — ${elTimeLabel.textContent}</h1>`);
+      w.document.write(`<p>Filters: Crop = ${elCrop.value}</p>`);
+      const cropSel = elCrop.value;
+      const rows = A.parcels.filter(p => cropSel==='all' || p.crop===cropSel)
+        .map(p => `<tr><td>${p.id}</td><td>${p.crop}</td><td>${p.areaHa.toFixed(1)}</td><td>${p.ndvi.toFixed(2)}</td><td>${Math.round(p.damage*100)}%</td><td>${p.yieldLossTons.toFixed(1)}</td><td>${Math.round(p.aiConf*100)}%</td></tr>`)
+        .join('');
+      w.document.write(`<table><thead><tr><th>FarmerID</th><th>Crop</th><th>Area (ha)</th><th>NDVI</th><th>Damage</th><th>Yield Loss (t)</th><th>AI Conf</th></tr></thead><tbody>${rows}</tbody></table>`);
+      w.document.write('</body></html>'); w.document.close(); w.focus(); w.print();
+    }
+
+    function toast(msg){ const el=document.getElementById('toast'); el.textContent=msg; el.classList.add('show'); setTimeout(()=> el.classList.remove('show'), 2200); }
+
+    // EVENTS
+    document.getElementById('btnCSV').addEventListener('click', exportCSV);
+    document.getElementById('btnReport').addEventListener('click', printReport);
+    document.getElementById('btnPush').addEventListener('click', () => { toast('Pushing to BIPAD…'); setTimeout(()=> toast('Synced to BIPAD ✓'), 1200); });
+
+    // Layer & filter interactions
+    elTime.addEventListener('input', updateFloodLayer);
+    [document.getElementById('layerFlood'), document.getElementById('layerDrone'), document.getElementById('layerAI'), document.getElementById('layerNDVI'), document.getElementById('layerDSM'), document.getElementById('layerWard')].forEach(el => el.addEventListener('change', updateLayerVisibility));
+    elCrop.addEventListener('change', rebuildParcels);
+
+    document.getElementById('btnSearch').addEventListener('click', () => {
+      const q = (elSearch.value || '').trim(); if (!q) return;
+      const A = areas[currentKey];
+      const found = A.parcels.find(p => p.id.toLowerCase() === q.toLowerCase());
+      if (!found) { toast('Farmer ID not found'); return; }
+      const poly = L.polygon(found.coords); map.fitBounds(poly.getBounds(), { padding: [20,20] });
+    });
+
+    // Expected Outputs interactions
+    document.getElementById('opOrthView').addEventListener('click', () => {
+      elDrone.checked = true; elDSM.checked = true; updateLayerVisibility();
+      toast('Orthophoto footprint & DSM shown');
+    });
+    document.getElementById('opOrthDL').addEventListener('click', exportOrthophotoDSM);
+
+    document.getElementById('opFloodView').addEventListener('click', () => {
+      elFlood.checked = true; updateLayerVisibility();
+      toast('Flood extent shown');
+    });
+    document.getElementById('opFloodDL').addEventListener('click', exportFloodExtent);
+
+    document.getElementById('opDamageView').addEventListener('click', () => {
+      elAI.checked = true; elNDVI.checked = false; updateLayerVisibility();
+      toast('Damage classification shown');
+    });
+    document.getElementById('opDamageDL').addEventListener('click', exportDamageMap);
+
+    document.getElementById('opPrototype').addEventListener('click', openPrototype);
+
+    // Area switch
+    elArea.addEventListener('change', () => { currentKey = elArea.value; buildAreaLayers(currentKey); });
+
+    // INIT
+    buildAreaLayers(currentKey);
+    updateFloodLayer();
+  </script>
+</body>
+</html>
+
